@@ -7,7 +7,7 @@ import requests
 
 # 假设你已经有了一个DataFrame，这里我们创建一个示例DataFrame
 excel_name = "../data/沪市IPO_全部_updated_data.xlsx"
-file_url = "../pdf/"
+file_url = "../data/pdf/"
 df = pd.read_excel(excel_name)
 
 # 遍历DataFrame的每一行
