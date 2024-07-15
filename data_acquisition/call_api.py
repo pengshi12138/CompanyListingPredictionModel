@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import time
 from collections import Counter
 import pandas as pd
@@ -26,8 +27,8 @@ prompts = {
     "system": '你现在是金融分析师，回答的格式只能是json格式的字符串，如字符串"{"A":"B", "C":"D"}"，根据用户所给的语句块提取金融相关的特征信息，无需联网查询。对应的金融信息特征和值采用键值对的格式，也就是key:value，其中要注意对于提取不出来的特征，value值设置为None',
     "第二节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下两个特征，一是是否为国家支持行业，判断“是”与“否”，或者None；二是运营情况良好程度，根据你的理解，按照“中”、“高”和“低”，或者None的值进行程度判定。回答结果返回JSON格式字符串，如“{"是否为国家支持行业": "是","运营情况良好程度":"高"}”。如果字段中不存在相关的特征提取，则value值写上None，如“{"是否为国家支持行业": None,"运营情况良好程度":None}”',
     "第三节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下两个特征，一是风险等级，按照你的理解判断“高”，“中”，“低”和None，其中None表示该语句块不存在该特征；二是风险类型，按照你的理解风险类型是“创新风险”，“经营风险”，“技术风险”，“财务风险”，“内控风险”，“法律风险”和None，其中None表示该语句块不存在该特征。回答结果返回JSON格式字符串，如:{"风险等级": "高","风险类型":"创新风险"}。',
-    "第四节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下一个特征，一是公司大股东分散情况，统计具有5%以上股票的大股东个数，如果该语句块不存在该相关特征，则为None。回答结果返回JSON格式字符串，如:{"大股东分散情况": 5}。',
-    "第五节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下三个特征，一是专利数量，分析语句中公司拥有的专利数量，需要注意是发明人专利还是公司拥有的专利进行判断，需要的是公司拥有的专利数量而不是发明人专利，如果该语句块不存在相关公司专利信息和专利特征，输出为None；二是是否有核心技术，输出结果为“是”、“否”或者None，如果该语句块设计核心专利的讲述，输出为None；；三是文本情感，根据你的理解判断文本透露出来的情感，输出结果为“积极”、“消极”和“中性”。回答的结果格式为JSON格式字符串，举一个例子，如“{"专利数量":None, "是否有核心技术":"是", "文本情感":"积极"}”',
+    "第四节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下一个特征，一是公司大股东分散情况，统计具有5%以上股票的大股东个数，如果该语句块不存在该相关特征，值为None。回答结果格式JSON格式字符串，举一个例子如“{"大股东分散情况": None}”。',
+    "第五节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下三个特征，一是专利数量，分析语句中公司及其子公司拥有的专利数量，需要注意是发明人专利还是公司拥有的专利进行判断，需要的是公司拥有的专利数量而不是发明人专利，如果该语句块不存在相关公司专利信息和专利特征，输出为None；二是是否有核心技术，输出结果为“是”、“否”或者None，如果该语句块设计核心专利的讲述，输出为None；；三是文本情感，根据你的理解判断文本透露出来的情感，输出结果为“积极”、“消极”和“中性”。回答的结果格式为JSON格式字符串，举一个例子，如“{"专利数量":None, "是否有核心技术":"是", "文本情感":"积极"}”',
     "第六节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下三个特征，一是营业收入，找出最新记录的营业收入具体的值，以万元为单位，如果该语句块不存在，则为None；二是净利润，找出最新记录净利润的具体值，以万元为单位，如果该语句块不存在该相关特征，则为None；三是资产负债率，找出最新记录资产负债率的具体值，以百分比为单位，如果该语句块不存在该相关特征，则为None；四是利润占营收的比例，找出最近记录利润占营收的比例的具体值，以百分比为单位，如果该语句块不存在该相关特征，则为None。返回的结果格式需要按照JSON格式回答，不能够有其它说明性语句，举一个例子，如“{"营业收入": 1000,"净利润":1000,"资产负债率":60,"利润":20}”',
     "第七节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下一个特征，一是未来憧憬程度，根据你的理解进行分析该文本信息进行判断，输出结果为“积极”，“消极”和“中性”。回答的结果为JSON格式字符串，如“{"未来憧憬程度":"积极"}”',
     "第八节": '分析语句块，提取对应的特征以键值对的JSON格式形式输出。提取如下两个特征，一是违法违规行为的恶劣程度，根据你的分析判断他的恶劣程度，输出结果为“高”、“中”和“低”，如果该语句块不存在该相关特征，则为None；二是公司创始人的品德，根据你的理解判断他的道德情况，输出结果为“高”、“中”和“低”，如果该语句块不存在该相关特征，则为None。回答的结果为JSON格式字符串，如“{"违法违规行为的恶劣程度":"高", "公司创始人的品德":"高"}”',
@@ -47,8 +48,29 @@ def split_text_with_overlap(text, max_new_tokens, overlap=500):
             continue
         chunks.append(text[max_new_tokens * i - overlap: max_new_tokens * (i + 1)])
     if len(text) % max_new_tokens != 0:
-        chunks. (text[max_new_tokens * (block_num + 1):])
+        chunks.append(text[max_new_tokens * (block_num + 1):])
     return chunks
+
+
+def split_text_with_keywords(text, keywords, window_size=MAX_TOKENS_PER_REQUEST):
+    contexts = []
+    last_match_end = 0  # 截停点
+    # 定义关键词的正则表达式
+    keyword_pattern = '|'.join(keywords)
+    # 查找所有匹配关键词的位置
+    for match in re.finditer(keyword_pattern, text):
+        if last_match_end >= match.start():
+            continue
+        # 计算上下文的起始和结束位置
+        start_index = max(0, match.start() - window_size // 2)
+        end_index = min(len(text), match.start() + window_size // 2)
+        # 更新上一次匹配结束的位置
+        last_match_end = end_index
+        # 提取上下文
+        context = text[start_index : end_index]
+        # 添加到结果列表
+        contexts.append(context)
+    return contexts
 
 
 # 调用API
@@ -102,7 +124,6 @@ def analyze_txt_files(directory):
             # 分析每个.txt文件
             for txt_file in txt_files:
                 file_path = os.path.join(subdir_path, txt_file)
-
                 # if str(txt_file).find("第二节") >= 0:
                 #     with open(file_path, 'r', encoding='utf-8') as file:
                 #         content = file.read()
@@ -127,16 +148,16 @@ def analyze_txt_files(directory):
                 if str(txt_file).find("第五节") >= 0:
                     with open(file_path, 'r', encoding='utf-8') as file:
                         content = file.read()
-                        api_result_5 = analysis_txt(content, "第五节")
+                        api_result_5 = analysis_txt(content, "第五节", ["专利"])
                         final_result.update(api_result_5)
                         print(api_result_5)
 
-                # if str(txt_file).find("第六节") >= 0:
-                #     with open(file_path, 'r', encoding='utf-8') as file:
-                #         content = file.read()
-                #         api_result_6 = analysis_txt(content, "第六节")
-                #         final_result.update(api_result_6)
-                #         print(api_result_6)
+                if str(txt_file).find("第六节") >= 0:
+                    with open(file_path, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                        api_result_6 = analysis_txt(content, "第六节", ["净利润"])
+                        final_result.update(api_result_6)
+                        print(api_result_6)
                 #
                 # if str(txt_file).find("第七节") >= 0:
                 #     with open(file_path, 'r', encoding='utf-8') as file:
@@ -160,13 +181,16 @@ def analyze_txt_files(directory):
     time.sleep(0.5)
 
 
-def analysis_txt(content, key):
-    text_chunks = split_text_with_overlap(content, MAX_TOKENS_PER_REQUEST)
+def analysis_txt(content, key, keywords=None):
+    if keywords is None:
+        text_chunks = split_text_with_overlap(content, MAX_TOKENS_PER_REQUEST)
+    else:
+        text_chunks = split_text_with_keywords(content, keywords=keywords)
     api_responses = []
     for chunk in text_chunks:
-        json = call_api(chunk, prompts[key])
-        if json is not None:
-            api_responses.append(json)
+        result_json = call_api(chunk, prompts[key])
+        if result_json is not None:
+            api_responses.append(result_json)
     api_result = merge_jsons(api_responses)
     return api_result
 
